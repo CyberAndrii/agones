@@ -118,24 +118,50 @@ func (pa *PortAllocator) Allocate(gs *agonesv1.GameServer) *agonesv1.GameServer 
 
 	// we only want this to be called inside the mutex lock
 	// so let's define the function here so it can never be called elsewhere.
-	// Also the return gives an escape from the double loop
 	findOpenPorts := func(amount int) []pn {
-		var ports []pn
 		if amount <= 0 {
-			return ports
+			return nil
 		}
+
+		var freePorts []pn
 		for _, n := range pa.portAllocations {
-			for p, taken := range n {
+			for port, taken := range n {
 				if !taken {
-					ports = append(ports, pn{pa: n, port: p})
-					// only allocate as many ports as are asked for by the GameServer
-					if len(ports) == amount {
-						return ports
-					}
+					freePorts = append(freePorts, pn{pa: n, port: port})
 				}
 			}
 		}
-		return ports
+
+		freePortsLen := len(freePorts)
+
+		if freePortsLen == 0 {
+			return nil
+		}
+
+		if amount == 1 {
+			return freePorts[0:1]
+		}
+
+		sort.Slice(freePorts, func(i, j int) bool {
+			return freePorts[i].port < freePorts[j].port
+		})
+
+		previous := freePorts[0]
+		inRow := 1
+		for i := 1; i < freePortsLen; i++ {
+			current := freePorts[i]
+			if previous.port+1 == current.port {
+				inRow++
+			} else {
+				inRow = 1
+			}
+			if inRow == amount {
+				return freePorts[i+1-amount : i+1]
+			}
+			previous = current
+		}
+
+		return nil
 	}
 
 	// this allows us to do recursion, within the mutex lock
